@@ -4,7 +4,7 @@
 # baseurl is the website's URL without the hostname
 
 # If you are building a simple GitHub user page (http://username.github.io) then use these settings:
-url: "http://byeongguk.github.io"
+url: "http://thywhite.github.io"
 baseurl: ""
 
 # If you are building a GitHub project page then use these settings:
@@ -74,7 +74,7 @@ social-network-links:
   rss: true
   email: "ofmir@naver.com"
 #  facebook: daattali
-  github: byeongguk
+  github: thywhite
 #  twitter: daattali
 #  reddit: yourname
 #  google-plus: +DeanAttali
@@ -244,4 +244,4 @@ plugins:
 # Beautiful Jekyll / Dean Attali
 # 2fc73a3a967e97599c9763d05e564189
 
-remote_theme : byeongguk/beautiful-jekyll
+remote_theme : thywhite/beautiful-jekyll
