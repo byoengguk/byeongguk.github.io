@@ -27,6 +27,9 @@ navbar-links:
   Links :
     - 동네 형 : "https://ddkkinf.github.io/"
     - 동네 동생 : "https://dhmin.github.io/"
+    - 코인 거래소 : "https://www.bitbox.me"
+    - 링크 코인 : "https://link.network/"
+    - 라인플러스 : "https://linepluscorp.com/"
 
 # Image to show in the navigation bar - image must be a square (width = height)
 # Remove this parameter if you don't want an image in the navbar
@@ -97,7 +100,7 @@ share-links-active:
 
 # How to display the link to the website in the footer
 # Remove this if you don't want a link in the footer
-url-pretty: "MyWebsite.com"  # eg. "deanattali.com/beautiful-jekyll"
+url-pretty: "thywhite.github.io"  # eg. "deanattali.com/beautiful-jekyll"
 
 # --- Web Statistics Section --- #
 
