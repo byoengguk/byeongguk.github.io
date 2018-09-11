@@ -83,7 +83,7 @@ rss:
 
 steam:
   name: "Steam"
-  baseURL: "https://steamcommunity.com/id/"
+  baseURL: "https://steamcommunity.com/profiles/"
   icon: "fa-steam"
 
 twitch:
