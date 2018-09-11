@@ -2,6 +2,9 @@
 layout: post
 title: 세상 안녕 포스트
 image: /img/hello_world.jpeg
+permalink: /hello-world
+categories: [life]
+tags: [hello-world]
 ---
 
 코드 알려주는 책들의 첫 예제가 세상 안녕인건 너무 유명하다.
