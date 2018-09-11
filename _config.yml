@@ -243,3 +243,5 @@ plugins:
 # 2fc73a3a967e97599c9763d05e564189
 
 remote_ theme : thywhite/beautiful-jekyll
+
+theme: jekyll-theme-hacker
