@@ -409,25 +409,24 @@ private static class EchoProcessor implements Runnable {
 * Netty 에서 bossGroup 기본값이 1, workerGroup 기본값이 CORE 수 * 2 인 이유도, 멀티코어 CPU를 풀로 활용하기 위해서다.
 
    
- ### 리액티브만의 장점은?
+### 리액티브만의 장점은?
  
- * 사실 위 예제에서는 잘 느껴지지 않는다.
- * 주 차이점은 subscriber 에서 필요한만큼 데이터를 요청하는 부분이다.
- * 제대로 된 publiser 는 요청받은만큼만 데이터를 공급한다.
- * 빠른 publisher 가 느린 subscriber 에게 데이터를 계속 밀어넣다가 문제가 생기는 일이 원천 방지 된다.
- * 전문용어 : BACKPRESSURE
+* 사실 위 예제에서는 잘 느껴지지 않는다.
+* 주 차이점은 subscriber 에서 필요한만큼 데이터를 요청하는 부분이다.
+* 제대로 된 publiser 는 요청받은만큼만 데이터를 공급한다.
+* 빠른 publisher 가 느린 subscriber 에게 데이터를 계속 밀어넣다가 문제가 생기는 일이 원천 방지 된다.
+* 전문용어 : BACKPRESSURE
  
- * 이외에도 여러 장점이 있을지 모르겠지만, 내가 모름
+* 이외에도 여러 장점이 있을지 모르겠지만, 내가 모름
  
- ### 테스트 영상
+### 테스트 영상
  
- * Non blocking 이랑 똑같으므로 생략
+* Non blocking 이랑 똑같으므로 생략
+ 
+## 보너스
+* ReactiveServer 와 동일한 일을 하고 더 나은 로직
+ 
+![Reactor-netty-version](/img/tcp-echo-server/reactor-netty.png)
  
  
- ## 보너스
- * ReactiveServer 와 동일한 일을 하고 더 나은 로직
- 
- ![Reactor-netty-version](/img/tcp-echo-server/reactor-netty.gif)
- 
- 
- 끝.
+끝.
