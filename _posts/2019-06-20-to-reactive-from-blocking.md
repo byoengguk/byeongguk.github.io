@@ -31,7 +31,7 @@ webflux 는 고도화가 많이 되어 있으므로, 이를 이해하기 위해 
 
 # Intro
 
-[Node JS](https://nodejs.org/ko/about/) 소개 페이지에 아래와 같은 문구가 있다.
+[Node JS](https://nodejs.org/ko/about/) 소개 페이지에 아래와 같은 자랑이 있다.
 
 > 이는 오늘날 OS 스레드가 일반적으로 사용하는 동시성 모델과는 대조적입니다. 스레드 기반의 네트워크는 상대적으로 비효율적이고 사용하기가 몹시 어렵습니다. 게다가 잠금이 없으므로 Node의 사용자는 프로세스의 교착상태에 대해서 걱정할 필요가 없습니다. Node에서 I/O를 직접 수행하는 함수는 거의 없으므로 프로세스는 결과 블로킹 되지 않습니다. 아무것도 블로킹 되지 않으므로 Node에서는 확장성 있는 시스템을 개발하는 게 아주 자연스럽습니다.
   
@@ -97,7 +97,7 @@ ServerSocket serverSocket = new ServerSocket(port);
 
 while (!Thread.currentThread().isInterrupted()) {
     final Socket socket = serverSocket.accept();
-    threadPool.submit(() -> { // 클라이어늩 데이터 수신을 thread pool에 맡긴다. 
+    threadPool.submit(() -> { // 클라이언트 데이터 수신을 thread pool에 맡긴다. 
         final InputStream is = socket.getInputStream();
 
         byte[] buffer = new byte[2048];
@@ -208,19 +208,19 @@ selector.close();
   * Node JS 가 자랑하던 바로 그것.
 
 ### select() 결과물을 처리하다가, 블로킹 메소드를 호출해버리면?
-* Don't do it.
+* **Don't do it.**
 * 비동기 이벤트 기반 처리와 블로킹 메소드의 궁합은 심각하게 좋지 않다.
 * 저 서버의 경우, ```selector.select()``` 가 호출이 늦어지게 된다.
 * 이 말은, 다른 클라이언트가 연결을 했을 경우, 데이터를 보냈을 경우 이를 처리하는 것이 늦어지는 것을 의미한다.
 * Netty나, 이를 기반으로 한 프레임워크 등에서, 블로킹 메소드를 호출하지 마세요라고 이야기하는 것은 이 때문.
 
 ### 블로킹 메소드 예시
-* Thread.sleep()
-* System.out.println()
-* Stream.read() / write()
+* ```Thread.sleep()```
+* ```System.out.println()```
+* ```Stream.read() / write()```
 * synchronized block
 * JDBC operation
-* logger.log()
+* ```logger.log()```
   * 설정에 따라서 async + discard 이면 OK. 
   * async 이더라도 discard 가 아닌 경우는 blocking 될 가능성 존재
 * 기타 등등..
@@ -284,7 +284,7 @@ static class EchoHandler extends ChannelInboundHandlerAdapter {
   * 멀티 코어 시스템에서는, 싱글 쓰레드 대비 더 빨리 처리할 수 있다는 이야기이다.
 
 * 사실 싱글 쓰레드 모델에서는, 멀티 코어 CPU 자원을 온전히 활용하기가 힘들다.
-  * Node JS 에서는 클러스터를 통해서 이를 해결한다.
+  * Node JS 에서는 클러스터(멀티프로세스)를 통해서 이를 해결한다.
 * 자바에서는 그냥, 핸들링 하는 쓰레드를 여러개 사용하면 된다. 지금 사용한 Netty 처럼.
 
 * 사실 Netty 에서 bossGroup 기본값이 1, workerGroup 기본값이 CORE 수 * 2 인 이유도, 멀티코어 CPU를 풀로 활용하기 위해서다.
@@ -371,7 +371,7 @@ public void start(int port) {
   * Reactive 표준 인터페이스인 [reactive-streams](https://github.com/reactive-streams/reactive-streams-jvm) 에서는 Publisher 로 표현한다.
   * [project-reactor](https://github.com/reactor/reactor) 에서 이 Publisher 를 구현했고, 그 구현체 중 하나가 Flux 이다.
   * Flux 는 0~n 개의 데이터를 퍼블리싱 한다.
-* 이 Flux 는 클라이언트가 연결이 될 때마다, Channel 을 계속 공급한다.
+* 이 Flux 는 클라이언트와 연결이 이루어 질 때마다, Channel 을 계속 공급한다.
 * ```List.stream()``` 이랑 비교하면 아래와 같은 차이점이 있다.
   1. 스트림 생성 시점 시, 어떤 데이터를 몇 개 줄지가 결정되어 있지 않다. (not predetermined)
   2. 스트림은 1회 용이다. 한번, count나 collect 등을 수행하면 재 사용할 수 없다. 반면 Flux 는 여러번 subscribe 를 할 수 있다.
@@ -429,7 +429,7 @@ public void start(int port) {
 
 ### 설명
 * reactor-core 가 아닌 [reactor-netty](https://github.com/reactor/reactor-netty) 를 사용하면 위와 같은 코드가 가능하다.
-* ReactiveServer 의 경우, 개념 설명을 위해 코드가 매우 방만한 것으로.. 시제로는 위와 같이 심플하게 구현이 가능하다.
+* ReactiveServer 의 경우, 개념 설명을 위해 코드가 매우 방만한 것으로.. 실제로는 위와 같이 심플하게 구현이 가능하다.
 * NettyServer 와 비교해도, 더 간결해보인다.
   * ServerBootstrap, WorkerGroup 설정 등이 안으로 다 들어가서 그렇다.
 * Reactive Server 에서 Channler 과 ByteBuf를 받는 부분도, nettyInbound & nettyOutbound 로 잘 추상화되어있다.
@@ -438,6 +438,13 @@ public void start(int port) {
 * spring-webflux 에서도 Controller에서 Publisher 를 반환 하면 된다. 이후 spring-webflux 에서 해당 publisher에 subscriber 를 붙인다. 
 * 이후 해당 Publisher에 데이터를 부어주면, spring-webflux 에서 그 데이터를 가지고 응답을 작성한다.
 * 여기에 있는 TcpHandler에서 ```Publisher<Void>```를 반환하는 것도 유사하다. 다만 여기서는 데이터가 다른 채널로 이미 전달이 되었기 때문(```nettyOubbound.send```)에, 그 전달이 완료되었는지 여부만 핸들러에 전달하는 것이다.
+
+## 이쯤에서 다시 보는 포스트 목표
+
+리액티브가 뭐야? 라고 했을 때 대답할 수 있기
+> 비동기 데이터 스트림을 잘 다루는 방법
+그게 왜 좋아? 에 대답할 수 있기
+> 시스템 자원을 아주 효율적으로 사용할 수 있으니까
 
 # Next Post
 * 이 Post 에서는 http가 아닌 tcp 를 다루었다.
