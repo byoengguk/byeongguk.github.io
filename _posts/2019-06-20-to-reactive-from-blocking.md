@@ -6,8 +6,9 @@ categories: [it]
 tags: [reactive, java, tcp, network]
 ---
 
-Reactive
-========
+# 제목 : To Reactive From Blocking
+
+블로킹에서 리액티브까지, 가즈아.
 
 # 포스트 계기
 
@@ -19,6 +20,9 @@ webmvc 놔두고, 왜 webflux 를 만들었고, 왜 또 그것을 그렇게 밀�
 
 과연 내 코딩 라이프에 webflux 가 webmvc 를 대체하게 될까?
 지금 생각해보면, 이런 의구심으로 이 리액티브 세계에 발을 들이밀기 시작한 것 같다.
+
+webflux 는 고도화가 많이 되어 있으므로, 이를 이해하기 위해 단순한데에서부터 시작해서,
+왜 리액티브가 핫한지, 뭐가 좋은지, 쓸만은 한건지에 대해서 풀어볼려고 한다.
 
 # 포스트 목표
 
@@ -230,203 +234,214 @@ selector.close();
 
 * 동시 접속 가능 테스트는 따로 수행하지 않음
 * 다만 아주 잘 돌아감 
+* 단순 에코 서버이고, 컨텍스트 스위칭 비용도 없으므로, 수만 커넥션은 문제 없을 것으로 생각.
+  * 테스트는 해보지 않았다.
+  * 이전 쓰레드 풀 기반 서버 보다 효율적인 것은 명백.
+
+
+## Netty Server
+
+```java
+public void start(int port) throws InterruptedException {
+    final NioEventLoopGroup bossGroup = new NioEventLoopGroup(1); // accept() 만 처리하는 보스 그룹
+    final NioEventLoopGroup workerGroup = new NioEventLoopGroup(Runtime.getRuntime().availableProcessors()); // 에코 로직(read&write)만 처리하는 워커 그룹
+
+    new ServerBootstrap()
+            .group(bossGroup, workerGroup)
+            .channel(NioServerSocketChannel.class)
+            .childHandler(new ChannelInitializer<SocketChannel>() {
+                @Override
+                protected void initChannel(SocketChannel ch) throws Exception {
+                    ch.pipeline().addLast(new EchoHandler());
+                }
+            })
+            .bind(port)
+            .channel().closeFuture().sync();
+}
+
+static class EchoHandler extends ChannelInboundHandlerAdapter {
+    @Override
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        ctx.channel().writeAndFlush(msg);
+    }
+}
+```
+[View in github](https://github.com/thywhite/tcp-echo-servers/blob/master/src/main/java/org/thywhite/springio/sharing/NettyServer.java)
+
+### 설명
+* 이제 리액티브 이야기를 시작하고 싶었지만, 저 긴 코드에다가 리액티브가 적용되면 코드가 너무 복잡해진다는 이야기를 들었으므로, 중간단계를 추가했다.
+* 이전 까지는 pure java만 사용했지만, 여기서부터는 라이브러리를 사용하기 시작한다.
+* Netty 를 사용해, 위 Non blocking server 를 압축했다. 위에 있는 pure java 코드 들은 ```NioServerSocketChannel```, ```NioSocketChannel``` 내부에 들어가게 된다.
+
+### Netty Event Loop Group
+* Netty 에서 사용하는 쓰레드 풀, 이제 더 이상 싱글 쓰레드가 아니다.
+* 그렇다고 이전 쓰레드 풀처럼, 요청 마다 쓰레드를 할당하는 구조도 아니다.
+* boosGroup 에서는 ```accept()``` 만 한다. accept 를 통해 할당된 채널(연결)들은 workerGroup 에 균등 분배된다.
+  * 이거는 시간이 오래 걸리는 로직이 아니므로, 쓰레드 1개로도 차고 넘친다.
+* workerGroup 에서는 ```read(), write()``` 를 한다.
+  * 이전에는 10000 커넥션이 있더라도, 싱글쓰레드에서 모두 처리했다.
+  * 코어수 4인 시스템을 가정하면, 이 NettyServer 에서는 쓰레드 당 2500 커넥션을 처리한다.
+  * 멀티 코어 시스템에서는, 싱글 쓰레드 대비 더 빨리 처리할 수 있다는 이야기이다.
+
+* 사실 싱글 쓰레드 모델에서는, 멀티 코어 CPU 자원을 온전히 활용하기가 힘들다.
+  * Node JS 에서는 클러스터를 통해서 이를 해결한다.
+* 자바에서는 그냥, 핸들링 하는 쓰레드를 여러개 사용하면 된다. 지금 사용한 Netty 처럼.
+
+* 사실 Netty 에서 bossGroup 기본값이 1, workerGroup 기본값이 CORE 수 * 2 인 이유도, 멀티코어 CPU를 풀로 활용하기 위해서다.
+* 테스트 영상은 Non blocking server와 다르지 않으므로 생략.
+  * 우린 이미 충분히 효율적인 에코 서버를 만들어냈다.
 
 ## Reactive Server
 
 ```java
-public void start(int port) throws IOException {
-    Publisher<SocketChannel> publisher = createSocketPublisher(port);
+public void start(int port) {
+    Flux<Channel> channelFlux = Flux.<Channel>create(sink -> {
+        NioEventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        NioEventLoopGroup workerGroup = new NioEventLoopGroup();
 
-    publisher.subscribe(new Subscriber<SocketChannel>() {
-        private final int nThreads = 2;
-        private final ExecutorService publishOnExecutor = Executors.newFixedThreadPool(nThreads);
-        private final ExecutorService subscribeOnExecutor = Executors.newSingleThreadExecutor();
+        new ServerBootstrap()
+                .group(bossGroup, workerGroup)
+                .channel(NioServerSocketChannel.class)
+                .childHandler(new ChannelInitializer<SocketChannel>() {
+                    @Override
+                    protected void initChannel(SocketChannel ch) throws Exception {
+                        // Flux 에 채널을 계속 공급
+                        sink.next(ch);
+                    }
 
-        private final List<EchoProcessor> echoProcessors = new ArrayList<>();
-        private Iterator<EchoProcessor> echoProcessorIterator;
+                    @Override
+                    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                        sink.complete();
+                    }
+                })
+                .bind(port);
+    }).log();
 
-        @SneakyThrows
-        @Override
-        public void onSubscribe(Subscription s) {
-            for (int i = 0; i < nThreads; i++) {
-                final EchoProcessor echoProcessor = new EchoProcessor();
-                echoProcessors.add(echoProcessor);
-                publishOnExecutor.submit(echoProcessor);
+    Flux<Tuple2<Channel, ByteBuf>> channelAndReceivedFlux = channelFlux.flatMap(channel -> Flux.create(sink -> {
+        channel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+            @Override
+            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                // Flux 에 채널이랑, 읽은 것을 계속 공급
+                sink.next(Tuples.of(ctx.channel(), (ByteBuf)msg));
             }
 
-            echoProcessorIterator = echoProcessors.iterator();
-            subscribeOnExecutor.submit(() -> s.request(Long.MAX_VALUE)); // subscriber 가 publisher 에게 요청을 한다는 것이 차이점
+            @Override
+            public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                // 연결이 끊어지면, 더 이상 보낼 것이 없으므로 완료 처리
+                sink.complete();
+            }
+        });
+    }));
+
+    channelAndReceivedFlux.subscribe(new Subscriber<Tuple2<Channel, ByteBuf>>() {
+        @Override
+        public void onSubscribe(Subscription s) {
+            // 계속 처리할 것이므로 최고값 요청
+            s.request(Long.MAX_VALUE);
         }
 
         @Override
-        public void onNext(SocketChannel channel) {
-            if (!echoProcessorIterator.hasNext()) {
-                echoProcessorIterator = echoProcessors.iterator();
-            }
-
-            echoProcessorIterator.next().register(channel);
+        public void onNext(Tuple2<Channel, ByteBuf> tuple) {
+            Channel channel = tuple.getT1();
+            ByteBuf received = tuple.getT2();
+            channel.writeAndFlush(received);
         }
 
         @Override
         public void onError(Throwable t) {
-
         }
 
         @Override
         public void onComplete() {
-
         }
     });
 }
-
-private Publisher<SocketChannel> createSocketPublisher(int port) throws IOException {
-    Selector acceptSelector = Selector.open();
-    ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
-
-    serverSocketChannel.configureBlocking(false);
-    serverSocketChannel.bind(new InetSocketAddress(port));
-
-    serverSocketChannel.register(acceptSelector, SelectionKey.OP_ACCEPT);
-
-    return new Publisher<SocketChannel>() {
-        @Override
-        public void subscribe(Subscriber<? super SocketChannel> s) {
-            s.onSubscribe(new Subscription() {
-                @SneakyThrows
-                @Override
-                public void request(long n) {
-
-                    while (acceptSelector.select() > 0) {
-                        final Iterator<SelectionKey> keyIterator =
-                                acceptSelector.selectedKeys().iterator();
-
-                        while (keyIterator.hasNext()) {
-                            final SelectionKey key = keyIterator.next();
-                            keyIterator.remove();
-
-                            final ServerSocketChannel serverSocketChannel =
-                                    (ServerSocketChannel)key.channel();
-
-                            final SocketChannel socketChannel = serverSocketChannel.accept();
-
-                            socketChannel.configureBlocking(false);
-                            s.onNext(socketChannel);
-                        }
-                    }
-                }
-
-                @SneakyThrows
-                @Override
-                public void cancel() {
-                    acceptSelector.close();
-                }
-            });
-        }
-    };
-}
-
-private static class EchoProcessor implements Runnable {
-    private final Selector selector;
-    private final BlockingQueue<SocketChannel> channelBlockingQueue = new LinkedBlockingQueue<>();
-
-    private EchoProcessor() throws IOException {
-        selector = Selector.open();
-    }
-
-    @SuppressWarnings("Duplicates")
-    @SneakyThrows
-    @Override
-    public void run() {
-        for (; ; ) {
-            SocketChannel newChannel;
-            if ((newChannel = channelBlockingQueue.poll()) != null) {
-                newChannel.register(selector, SelectionKey.OP_READ);
-            }
-
-            if (selector.select(100) > 0) {
-                final Iterator<SelectionKey> keyIterator = selector.selectedKeys().iterator();
-
-                while (keyIterator.hasNext()) {
-                    final SelectionKey key = keyIterator.next();
-                    keyIterator.remove();
-
-                    SocketChannel channel = (SocketChannel)key.channel();
-                    ByteBuffer buffer = ByteBuffer.allocate(2048);
-                    final int bytesRead = channel.read(buffer);
-
-                    if (bytesRead == -1) {
-                        channel.close();
-                        key.cancel();
-                        continue;
-                    } else {
-                        buffer.flip();
-                        channel.write(buffer);
-                    }
-                }
-            }
-        }
-    }
-
-    @SneakyThrows
-    public void register(SocketChannel channel) {
-        channelBlockingQueue.add(channel);
-    }
-}
 ```
 [View in github](https://github.com/thywhite/tcp-echo-servers/blob/master/src/main/java/org/thywhite/springio/sharing/ReactiveServer.java)
-
-### 설명
-* 이제 리액티브 이야기.
-* 이전 까지는 pure java만 사용했지만, 여기서부터는 [리액티브 스트림즈](https://github.com/reactive-streams/reactive-streams-jvm)를 사용하기 시작한다.
-
-#### 리액티브 스트림즈 간단 요약
-* publisher / subscriber 가 메인 컴포넌트
-  * 예제에서는 SocketChannel 이 그 대상
-* publisher 에 subscriber 를 등록하면, publisher 가 subscriber 한테 subscription 을 제공해준다.
-* 이후 subscriber 에서 제공받은 subscription 을 사용해서, 데이터를 필요한만큼(처리 가능한만큼) 요청한다.
-  * 예제에서는 죄다 처리하는 만큼 패기롭게 Long.MAX_VALUE 만큼 요청
-* publisher 는 요청 받은 만큼 데이터를 subscriber 한테 보내려고 노력한다.
-  * 예제에서는 ```accept()``` 할 때마다 하나씩 보낸다. request 받은 만큼만 보내는 부분은 지면 관계상 미구현이다.
-* subscriber 는 받은 데이터를 필요한 데로 사용한다.
-  * 예제에서는 ```EchoProcessor``` 에 등록한다.
-  * ```EchoProcesoor``` 에서는 전달 받은 소켓을 등록하고, 자기 셀렉터의 등록한 후 Echo 로직을 실행한다.   
-* 더 공급할 데이터가 없으면 complete 를 subscriber 에게 전달한다. 에러가 난 경우는 error 를 전달한다.
-  * 예제에서는 아무것도 하지 않는다. 서버는 계속 실행되는것이 일반적이니만큼 
-  
-### 싱글 쓰레드가 아니네?
-* 싱글 쓰레드에서 다시 멀티 쓰레드로 돌아왔다.
-* subscribeOnExecutor -> 데이터를 요청 한 쓰레드. 이 쓰레드에서 Publisher 가 SocketChannel 을 공급해준다. 단일 쓰레드.
-  * Netty 로 치면 Boss/Parent Group 이 하는 일이다.
-* publishOnExecutor -> Publisher 가 데이터를 공급 한 쓰레드. 이 쓰레드에서 제공 받은된 SocketChannel 을 핸들링 한다. 멀티 쓰레드.
-  * Netty 에서 그냥 Worker/Child Group 이 하는 일이다.  
-
-* subscribeOn / publishOn 은 별도 Publisher(Operator 이기도 하다) 에서 처리하는 것이 적절하나, 코드 복잡도 상 Subscriber 에서 다 처리하게 해두었다.
-
-* 사실 싱글 쓰레드 모델에서는, 멀티 코어 CPU 자원을 온전히 활용하기가 힘들다.
-  * Node JS 에서는 클러스터를 통해서 이를 해결한다.
-* 자바에서는 그냥, 핸들링 하는 쓰레드를 여러개 사용하면 된다.
-
-* Netty 에서 bossGroup 기본값이 1, workerGroup 기본값이 CORE 수 * 2 인 이유도, 멀티코어 CPU를 풀로 활용하기 위해서다.
-
    
-### 리액티브만의 장점은?
- 
-* 사실 위 예제에서는 잘 느껴지지 않는다.
-* 주 차이점은 subscriber 에서 필요한만큼 데이터를 요청하는 부분이다.
-* 제대로 된 publiser 는 요청받은만큼만 데이터를 공급한다.
+### 설명
+* 네티 서버에 비하면 많이 지저분해졌다.
+* 깔금한 버전은 다음에 나올 것이다. 지금은 리액티브 개념을 설명하기 위해 위와 같은 구조로 변경하였다.
+
+* 리액티브의 주 관심사는 비동기 데이터 스트림을 아주아주 잘 세련되게 처리하는 것이다.
+* 그래서 위 네티 서버 로직을 비동기 데이터 스트림으로 표현한 것이 위 예제이다.
+
+#### 첫번째 Flux - ```Flux<Channel> channelFlux```
+* Flux는 비동기 데이터를 공급하는 역할을 한다.
+  * Reactive 표준 인터페이스인 [reactive-streams](https://github.com/reactive-streams/reactive-streams-jvm) 에서는 Publisher 로 표현한다.
+  * [project-reactor](https://github.com/reactor/reactor) 에서 이 Publisher 를 구현했고, 그 구현체 중 하나가 Flux 이다.
+  * Flux 는 0~n 개의 데이터를 퍼블리싱 한다.
+* 이 Flux 는 클라이언트가 연결이 될 때마다, Channel 을 계속 공급한다.
+* ```List.stream()``` 이랑 비교하면 아래와 같은 차이점이 있다.
+  1. 스트림 생성 시점 시, 어떤 데이터를 몇 개 줄지가 결정되어 있지 않다. (not predetermined)
+  2. 스트림은 1회 용이다. 한번, count나 collect 등을 수행하면 재 사용할 수 없다. 반면 Flux 는 여러번 subscribe 를 할 수 있다.
+  3. Stream 에서는 데이터를 계속 push 하는 방법만 있지만, Flux 에서는 데이터를 요청 할 수 있다. ```s.request(Long.MAX_VALUE)```
+  4. 여기에서는 다루지 않지만 Flux 에서는 publish 하는 쓰레드, subscribe 를 하는 쓰레드 등을 쉽게 지정할 수 있다.
+
+### 두번째 Flux - ```Flux<Tuple2<Channel, ByteBuf>> channelAndReceivedFlux```
+* 첫번째 Flux 에 flatMap 연산을 적용한 결과이다.
+* 여기에서는 채널이랑 채널에서 보낸 데이터를 조합한다.
+* 채널에서 데이터를 받는것 또한 비동기 데이터 공급이므로, Flux 를 또 생성 한 것이다.
+  * 첫번째는 보스 채널에서 비동기로 클라이언트 채널 생성
+  * 두번째는 클라이언트 채널에서 비동기로 수신 데이터와 채널 생성
+
+### Subscriber
+* Flux 에서 공급받은 데이터를 가지고 뭔가를 하는 역할이다.
+* 여기에서는 에코 로직을 수행한다.
+* subscriber 는 publisher 로부터 subscription 을 제공 받고, 이 친구를 사용해서 데이터를 요청하고 요청한 데이터를 전달 받는다.
+  * 데이터를 요청 -> ```s.request(Long.MAX_VALUE);```
+  * 데이터를 제공 받음 -> ```onNext```
+  * 데이터가 끝났다는 것을 전달 받음 -> ```onComplete```
+  * 오류가 생겼다는 것을 전달 받음 -> ```onError```
+
+* 여기에서 포인트는, 데이터를 요청한다는 것이다.
+* publisher 가 제대로 된 친구라면, 요청한 만큼만 데이터를 공급한다.
 * 빠른 publisher 가 느린 subscriber 에게 데이터를 계속 밀어넣다가 문제가 생기는 일이 원천 방지 된다.
 * 전문용어 : BACKPRESSURE
- 
-* 이외에도 여러 장점이 있을지 모르겠지만, 내가 모름
- 
-### 테스트 영상
- 
-* Non blocking 이랑 똑같으므로 생략
- 
-## 보너스
-* ReactiveServer 와 동일한 일을 하고 더 나은 로직
- 
-![Reactor-netty-version](/img/tcp-echo-server/reactor-netty.png)
- 
- 
+
+지금은 단순 echo 로직이라 패기롭게 Long.MAX_VALUE 를 요청한 것이다. 반면, 위에 Netty 서버에 비슷한 로직을 추가하려면 별도의 인터셉터를 추가해야 한다.
+그리고 그 추가한 로직을, 다른 비슷한 비동기 데이터 처리에 재활용할 수 있으리라는 보장도 없다.
+반면, reactive-streams 위와 같이 backpressure 를 위한 표준 인터페이스가 규정되어 있으므로, 그대로 사용만 하면 된다.
+
+애초에 reactive-streams 의 목적이 이것이다.
+> The purpose of Reactive Streams is to provide a standard for asynchronous stream processing with non-blocking backpressure.
+
+이제는 이 말이 이해가 갈 것이라고 믿는다.
+
+자 이제 마지막으로..
+
+## Reactor Netty Server
+```java
+public void start(int port) {
+    TcpServer.create()
+            .port(port)
+            .handle((nettyInbound, nettyOutbound) -> {
+                ByteBufFlux receive = nettyInbound.receive();
+                NettyOutbound send = nettyOutbound.send((Publisher<ByteBuf>)receive.retain());
+                return (Publisher<Void>)send;
+            })
+            // 1 줄로도 가능
+            //.handle((nettyInbound, nettyOutbound) -> nettyOutbound.send(nettyInbound.receive().retain()))
+            .bindNow();
+}
+```
+[View in github](https://github.com/thywhite/tcp-echo-servers/blob/master/src/main/java/org/thywhite/springio/sharing/ReactiveNettyServer.java)
+
+### 설명
+* reactor-core 가 아닌 [reactor-netty](https://github.com/reactor/reactor-netty) 를 사용하면 위와 같은 코드가 가능하다.
+* ReactiveServer 의 경우, 개념 설명을 위해 코드가 매우 방만한 것으로.. 시제로는 위와 같이 심플하게 구현이 가능하다.
+* NettyServer 와 비교해도, 더 간결해보인다.
+  * ServerBootstrap, WorkerGroup 설정 등이 안으로 다 들어가서 그렇다.
+* Reactive Server 에서 Channler 과 ByteBuf를 받는 부분도, nettyInbound & nettyOutbound 로 잘 추상화되어있다.
+
+* 중간에 있는 Publisher 로의 캐스팅은 사실 불필요하지만, 리액티브 개념설명을 위해 명시한 것이다.
+* spring-webflux 에서도 Controller에서 Publisher 를 반환 하면 된다. 이후 spring-webflux 에서 해당 publisher에 subscriber 를 붙인다. 
+* 이후 해당 Publisher에 데이터를 부어주면, spring-webflux 에서 그 데이터를 가지고 응답을 작성한다.
+* 여기에 있는 TcpHandler에서 ```Publisher<Void>```를 반환하는 것도 유사하다. 다만 여기서는 데이터가 다른 채널로 이미 전달이 되었기 때문(```nettyOubbound.send```)에, 그 전달이 완료되었는지 여부만 핸들러에 전달하는 것이다.
+
+# Next Post
+* 이 Post 에서는 http가 아닌 tcp 를 다루었다.
+* 그러므로 spring-webflux 이야기는 아주 조금 밖에 없는데, 이것이 아쉽다라는 요청이 있었으므로.. 아마 spring-webflux 이야기를 하지 않을까..?
+* 언제 쓸지는 모르겠지만.. 이 블로그 포스트 간격을 보면 ㅋㅋㅋㅋ;
+
 끝.
