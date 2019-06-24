@@ -276,7 +276,7 @@ static class EchoHandler extends ChannelInboundHandlerAdapter {
 ### Netty Event Loop Group
 * Netty 에서 사용하는 쓰레드 풀, 이제 더 이상 싱글 쓰레드가 아니다.
 * 그렇다고 이전 쓰레드 풀처럼, 요청 마다 쓰레드를 할당하는 구조도 아니다.
-* boosGroup 에서는 ```accept()``` 만 한다. accept 를 통해 할당된 채널(연결)들은 workerGroup 에 균등 분배된다.
+* bossGroup 에서는 ```accept()``` 만 한다. accept 를 통해 할당된 채널(연결)들은 workerGroup 에 균등 분배된다.
   * 이거는 시간이 오래 걸리는 로직이 아니므로, 쓰레드 1개로도 차고 넘친다.
 * workerGroup 에서는 ```read(), write()``` 를 한다.
   * 이전에는 10000 커넥션이 있더라도, 싱글쓰레드에서 모두 처리했다.
